@@ -1,0 +1,13 @@
+{
+  "InstallMode": "NetworkCopy",
+  "DominoName": "Zeus/TUVAN",
+  "DominoAddress": "zeus",
+  "LocalMediaRoot": "C:\\install\\Notes-1451",
+  "NetworkMediaRoot": "\\\\10.0.1.100\\mjukvara\\HCL\\Paketering\\Notes-1451",
+  "NotesEdition": "Swedish",
+  "InstallLanguagePack": false,
+  "AddToHostsAsSetupServer": false,
+  "HostsIp": "",
+  "HostsName": "",
+  "CleanupStaging": false
+}

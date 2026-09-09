@@ -1,0 +1,13 @@
+{
+  "InstallMode": "NetworkCopy",
+  "DominoName": "Zeus/TUVAN",
+  "DominoAddress": "zeus.tuvan.local",
+  "LocalMediaRoot": "C:\\install\\Notes-1451",
+  "NetworkMediaRoot": "\\\\dc02\\Install\\Notes-1451",
+  "NotesEdition": "Swedish",
+  "InstallLanguagePack": false,
+  "AddToHostsAsSetupServer": false,
+  "HostsIp": "",
+  "HostsName": "",
+  "CleanupStaging": false
+}
