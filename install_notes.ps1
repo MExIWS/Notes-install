@@ -14,7 +14,7 @@
 
 [CmdletBinding()]
 param(
-    # Kit-rot: Notes-1451\ (innehåller Notes_1451_Win64_Swedish + SupportFiles)
+    # Kit-rot: Notes-1451\ (innehalle Notes_1451_Win64_Swedish + SupportFiles)
     # Default nar scriptet ligger i SupportFiles\scripts\: farforaldern till SupportFiles
     [string]$MediaRoot = $(
         $here = $PSScriptRoot
@@ -78,6 +78,10 @@ param(
 
     [string]$LocalMediaRoot = 'C:\install\Notes-1451',
     [switch]$SkipLocalMirror,
+
+    # VC++ 2015-2022 (vcruntime140_1.dll). Lag vc_redist.x64.exe + vc_redist.x86.exe i mappen.
+    [string]$VcRedistDir = 'SupportFiles\vcredist',
+    [switch]$SkipVcRedist,
 
     [switch]$SkipNice,
     [switch]$SkipResidualCleanup,
@@ -944,6 +948,129 @@ function Set-IniValue {
     Write-Host "  [$Section] $Key=$Value"
 }
 
+function Test-Vcruntime140_1 {
+    param([Parameter(Mandatory)][ValidateSet('x64', 'x86')][string]$Arch)
+    if ($Arch -eq 'x64') {
+        return (Test-Path -LiteralPath (Join-Path $env:SystemRoot 'System32\vcruntime140_1.dll'))
+    }
+    return (Test-Path -LiteralPath (Join-Path $env:SystemRoot 'SysWOW64\vcruntime140_1.dll'))
+}
+
+function Find-VcRedistSetup {
+    param(
+        [Parameter(Mandatory)][string]$MediaRoot,
+        [Parameter(Mandatory)][string]$VcRedistDir,
+        [Parameter(Mandatory)][string]$FileName
+    )
+    foreach ($c in @(
+            (Join-Path $MediaRoot (Join-Path $VcRedistDir $FileName)),
+            (Join-Path $MediaRoot "SupportFiles\$FileName")
+        )) {
+        if (Test-Path -LiteralPath $c) {
+            return (Get-ProviderPath -Path $c)
+        }
+    }
+    return $null
+}
+
+function Save-VcRedistFromWeb {
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [Parameter(Mandatory)][string]$FileName
+    )
+    $dest = Join-Path $env:TEMP $FileName
+    Write-Host "Laddar ner $Url"
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $Url -OutFile $dest -UseBasicParsing
+    }
+    catch {
+        throw "Kunde inte ladda ner $FileName ($Url). $($_.Exception.Message)"
+    }
+    if (-not (Test-Path -LiteralPath $dest) -or ((Get-Item -LiteralPath $dest).Length -lt 1MB)) {
+        throw "Nedladdning av $FileName blev for liten / saknas: $dest"
+    }
+    return $dest
+}
+
+function Install-OneVcRedist {
+    param(
+        [Parameter(Mandatory)][string]$SetupExe,
+        [Parameter(Mandatory)][string]$DisplayName
+    )
+    $SetupExe = ConvertTo-Win32Path -Path $SetupExe
+    Write-Host "Kor: $DisplayName"
+    Write-Host "     $SetupExe /install /quiet /norestart"
+    $p = Start-Process -FilePath $SetupExe -ArgumentList @('/install', '/quiet', '/norestart') `
+        -Wait -PassThru -NoNewWindow
+    $code = if ($p) { $p.ExitCode } else { $null }
+    # 0 = ok, 1638 = nyare/samma redan installerad, 3010 = reboot
+    if ($null -eq $code -or ($code -ne 0 -and $code -ne 1638 -and $code -ne 3010)) {
+        throw "$DisplayName misslyckades (exit $code)"
+    }
+    if ($code -eq 3010) {
+        Write-Warning "$DisplayName rapporterade omstart (3010)."
+    }
+}
+
+function Install-NotesVcRedist {
+    param(
+        [Parameter(Mandatory)][string]$MediaRoot,
+        [Parameter(Mandatory)][string]$VcRedistDir
+    )
+
+    Write-Step 'Visual C++ Redistributable 2015-2022 (vcruntime140_1.dll)'
+    $needX64 = -not (Test-Vcruntime140_1 -Arch 'x64')
+    $needX86 = -not (Test-Vcruntime140_1 -Arch 'x86')
+    if (-not $needX64 -and -not $needX86) {
+        Write-Host 'vcruntime140_1.dll finns redan (x64 + x86). Hoppar over.'
+        return
+    }
+
+    $jobs = @()
+    if ($needX64) {
+        $jobs += [pscustomobject]@{
+            Arch    = 'x64'
+            File    = 'vc_redist.x64.exe'
+            Url     = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+            Display = 'VC++ Redistributable x64'
+        }
+    }
+    if ($needX86) {
+        $jobs += [pscustomobject]@{
+            Arch    = 'x86'
+            File    = 'vc_redist.x86.exe'
+            Url     = 'https://aka.ms/vs/17/release/vc_redist.x86.exe'
+            Display = 'VC++ Redistributable x86'
+        }
+    }
+
+    foreach ($job in $jobs) {
+        $setup = Find-VcRedistSetup -MediaRoot $MediaRoot -VcRedistDir $VcRedistDir -FileName $job.File
+        if (-not $setup) {
+            Write-Warning "Saknar $($job.File) i $VcRedistDir - provar Microsoft-nedladdning."
+            $setup = Save-VcRedistFromWeb -Url $job.Url -FileName $job.File
+        }
+        Install-OneVcRedist -SetupExe $setup -DisplayName $job.Display
+    }
+
+    if (-not (Test-Vcruntime140_1 -Arch 'x64')) {
+        throw @"
+VCRUNTIME140_1.dll saknas fortfarande i System32 efter VC++-install.
+
+Lagg vc_redist.x64.exe + vc_redist.x86.exe i:
+  $(Join-Path $MediaRoot $VcRedistDir)
+
+Ladda ner:
+  https://aka.ms/vs/17/release/vc_redist.x64.exe
+  https://aka.ms/vs/17/release/vc_redist.x86.exe
+
+Kor elevated: vc_redist.x64.exe /install /quiet /norestart
+"@
+    }
+    Write-Host 'VC++ Redistributable installerad / redan pa plats.'
+}
+
 function Resolve-KitMediaRoot {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -1034,6 +1161,14 @@ if (-not $os64) {
 }
 if ($osCaption -match 'Windows 7') {
     Write-Warning 'HCL Notes 14.5 stoder inte Windows 7. Installation kan misslyckas eller vara ospard.'
+}
+
+# 0) VC++ - Notes 14.x / nlnotes.exe kraver vcruntime140_1.dll (saknas pa naken Win10)
+if (-not $SkipVcRedist) {
+    Install-NotesVcRedist -MediaRoot $MediaRoot -VcRedistDir $VcRedistDir
+}
+else {
+    Write-Host 'Hoppar over VC++ Redistributable (-SkipVcRedist)'
 }
 
 # NICE: valj x86-binar automatiskt om default-x64 angets pa (osannolik) 32-bitars host
@@ -1352,5 +1487,5 @@ if ($useMst) {
 else {
     Write-Host 'Ingen MST: ALLUSERS=1 SETMULTIUSER=1 sattes via kommandorad; notes.ini patchades i PS.'
 }
-Write-Host 'ConfigFile bör peka på separat SetupNotes.txt:'
+Write-Host 'ConfigFile bor peka pa los SetupNotes.txt:'
 Write-Host "  $setupDst"
