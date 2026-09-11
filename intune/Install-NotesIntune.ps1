@@ -34,11 +34,11 @@ function Read-IntuneConfig {
 
     $path = Join-Path $PSScriptRoot 'intune.parameters.json'
     if (-not (Test-Path -LiteralPath $path)) {
-        Write-Host "Ingen intune.parameters.json - anvander defaults ($($cfg.InstallMode))."
+        Write-Host "Ingen intune.parameters.json - använder defaults ($($cfg.InstallMode))."
         return $cfg
     }
 
-    Write-Host "Laser $path"
+    Write-Host "Låser $path"
     $json = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($name in @($cfg.PSObject.Properties.Name)) {
         $prop = $json.PSObject.Properties[$name]
