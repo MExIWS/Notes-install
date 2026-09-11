@@ -96,7 +96,9 @@ param(
     [switch]$PatchNotesIni,
     [switch]$RunCompact,
     # Behall Notes Minder / NSD / skrivbordsikon HCL Notes
-    [switch]$SkipShortcutCleanup
+    [switch]$SkipShortcutCleanup,
+    # Default: avbryt om Notes kor (exit 10). Tvinga dodande av processer: -ForceCloseNotes
+    [switch]$ForceCloseNotes
 )
 
 Set-StrictMode -Version Latest
@@ -505,14 +507,39 @@ Testa manuellt i elevated CMD:
     return $p.ExitCode
 }
 
+function Get-NotesClientProcesses {
+    $names = @('notes', 'nlnotes', 'notes2', 'ntaskldr', 'nminder')
+    return @(Get-Process -Name $names -ErrorAction SilentlyContinue)
+}
+
 function Stop-NotesProcesses {
-    foreach ($name in @('notes', 'nlnotes', 'notes2', 'ntaskldr', 'nminder')) {
-        Get-Process -Name $name -ErrorAction SilentlyContinue |
-            ForEach-Object {
-                Write-Host "Stoppar process: $($_.Name) (PID $($_.Id))"
-                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-            }
+    Get-NotesClientProcesses | ForEach-Object {
+        Write-Host "Stoppar process: $($_.Name) (PID $($_.Id))"
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Assert-NotesNotRunning {
+    $procs = Get-NotesClientProcesses
+    if ($procs.Count -eq 0) {
+        Write-Host 'Notes-processer: inga. Installationen fortsatter.'
+        return
+    }
+
+    Write-Host 'Notes kor pa den har datorn:'
+    $procs | ForEach-Object { Write-Host "  $($_.Name) PID $($_.Id)" }
+
+    if ($ForceCloseNotes) {
+        Write-Warning 'ForceCloseNotes: stoppar Notes och fortsatter.'
+        Stop-NotesProcesses
+        Start-Sleep -Seconds 2
+        return
+    }
+
+    Write-Host ''
+    Write-Host 'Installationen avbryts (exit 10). Stang Notes och kor om, eller anvand -ForceCloseNotes.'
+    Write-Host 'PDQ: sat inte 10 som success code; valfritt retry. Paketvillkor: notes.exe kor inte.'
+    exit 10
 }
 
 function Get-LnkTargetPath {
@@ -1133,6 +1160,9 @@ Write-Host "Administrator = $isAdmin"
 if (-not $isAdmin) {
     throw 'Skriptet maste koras som Administrator (hogerklicka PowerShell -> Kor som administratör).'
 }
+
+Write-Step 'Kontrollerar att Notes inte kor'
+Assert-NotesNotRunning
 
 # setup.exe fran Z:\ / UNC ger Access denied - spegla hela kit-roten lokalt
 if (-not $SkipLocalMirror -and (Test-IsNetworkPath -Path $MediaRoot)) {
