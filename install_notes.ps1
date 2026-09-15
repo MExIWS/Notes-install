@@ -1,12 +1,13 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-  Installerar HCL Notes 14.5.1 (multi-user), FP1, svenskt language pack
-  samt kopierar in SetupNotes.txt efter NICE-rensning.
+  Installerar eller avinstallerar HCL Notes 14.5.1 (multi-user), FP1,
+  svenskt language pack samt kopierar in SetupNotes.txt efter NICE-rensning.
 
 .DESCRIPTION
   PowerShell-motsvarighet till äldre CMD-flöde för Notes 12.x.
   Anpassa filnamnen under param()-blocket till era faktiska mediafiler.
+  Avinstallera med -Uninstall (NICE -rp, msiexec-fallback, residualer).
 
 .NOTES
   Kör som Administrator (krävs för NICE, MSI per-machine, hosts, ProgramData).
@@ -98,7 +99,11 @@ param(
     # Behall Notes Minder / NSD / skrivbordsikon HCL Notes
     [switch]$SkipShortcutCleanup,
     # Default: avbryt om Notes kor (exit 10). Tvinga dodande av processer: -ForceCloseNotes
-    [switch]$ForceCloseNotes
+    [switch]$ForceCloseNotes,
+    # Ta bort Notes i stallet for att installera (NICE + msiexec + residualer)
+    [switch]$Uninstall,
+    # Med -Uninstall: rensa aven per-anvandardata (ID-fil, NSF-repliker). Default av.
+    [switch]$RemoveUserData
 )
 
 Set-StrictMode -Version Latest
@@ -508,26 +513,32 @@ Testa manuellt i elevated CMD:
 }
 
 function Get-NotesClientProcesses {
+    # Inte "return @(...)" / "return ,(...)": PS packar upp eller nastar arrayen.
+    # Anropare ska alltid gora: $procs = @(Get-NotesClientProcesses)
     $names = @('notes', 'nlnotes', 'notes2', 'ntaskldr', 'nminder')
-    return @(Get-Process -Name $names -ErrorAction SilentlyContinue)
+    Get-Process -Name $names -ErrorAction SilentlyContinue
 }
 
 function Stop-NotesProcesses {
-    Get-NotesClientProcesses | ForEach-Object {
-        Write-Host "Stoppar process: $($_.Name) (PID $($_.Id))"
-        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    foreach ($p in @(Get-NotesClientProcesses)) {
+        if (-not ($p -is [System.Diagnostics.Process])) { continue }
+        Write-Host "Stoppar process: $($p.Name) (PID $($p.Id))"
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     }
 }
 
 function Assert-NotesNotRunning {
-    $procs = Get-NotesClientProcesses
+    $procs = @(Get-NotesClientProcesses)
     if ($procs.Count -eq 0) {
-        Write-Host 'Notes-processer: inga. Installationen fortsatter.'
+        Write-Host 'Notes-processer: inga. Fortsatter.'
         return
     }
 
     Write-Host 'Notes kor pa den har datorn:'
-    $procs | ForEach-Object { Write-Host "  $($_.Name) PID $($_.Id)" }
+    foreach ($p in $procs) {
+        if (-not ($p -is [System.Diagnostics.Process])) { continue }
+        Write-Host "  $($p.Name) PID $($p.Id)"
+    }
 
     if ($ForceCloseNotes) {
         Write-Warning 'ForceCloseNotes: stoppar Notes och fortsatter.'
@@ -537,7 +548,7 @@ function Assert-NotesNotRunning {
     }
 
     Write-Host ''
-    Write-Host 'Installationen avbryts (exit 10). Stang Notes och kor om, eller anvand -ForceCloseNotes.'
+    Write-Host 'Korningen avbryts (exit 10). Stang Notes och kor om, eller anvand -ForceCloseNotes.'
     Write-Host 'PDQ: sat inte 10 som success code; valfritt retry. Paketvillkor: notes.exe kor inte.'
     exit 10
 }
@@ -1098,8 +1109,283 @@ Kor elevated: vc_redist.x64.exe /install /quiet /norestart
     Write-Host 'VC++ Redistributable installerad / redan pa plats.'
 }
 
+function Find-NiceExe {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($NiceExe)) {
+        [void]$candidates.Add($NiceExe)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($MediaRoot)) {
+        [void]$candidates.Add((Join-Path $MediaRoot $NiceExe))
+        [void]$candidates.Add((Join-Path $MediaRoot 'SupportFiles\x64\NICE_x64.exe'))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($LocalMediaRoot)) {
+        [void]$candidates.Add((Join-Path $LocalMediaRoot $NiceExe))
+        [void]$candidates.Add((Join-Path $LocalMediaRoot 'SupportFiles\x64\NICE_x64.exe'))
+    }
+    if ($PSScriptRoot) {
+        [void]$candidates.Add((Join-Path $PSScriptRoot 'NICE_x64.exe'))
+        [void]$candidates.Add((Join-Path $PSScriptRoot 'intune\NICE_x64.exe'))
+        $support = Split-Path -Parent $PSScriptRoot
+        [void]$candidates.Add((Join-Path $support 'x64\NICE_x64.exe'))
+        [void]$candidates.Add((Join-Path $support 'NICE_x64.exe'))
+    }
+    [void]$candidates.Add('C:\install\Notes-1451\SupportFiles\x64\NICE_x64.exe')
+
+    foreach ($c in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($c)) { continue }
+        $expanded = [Environment]::ExpandEnvironmentVariables($c.Trim())
+        $expanded = ConvertTo-Win32Path -Path $expanded
+        try {
+            $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($expanded)
+        }
+        catch {
+            $full = $expanded
+        }
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+        try {
+            return (Get-ProviderPath -Path $full)
+        }
+        catch {
+            return $full
+        }
+    }
+    return $null
+}
+
+function Invoke-NiceRemove {
+    if ($SkipNice) {
+        Write-Host 'Hoppar over NICE (-SkipNice)'
+        return 0
+    }
+
+    $nice = Find-NiceExe
+    if (-not $nice) {
+        Write-Warning 'Hittar inte NICE_x64.exe. Fortsatter med msiexec / residualer.'
+        return 0
+    }
+
+    Write-Step 'NICE: avinstallerar Notes (-rp /qn)'
+    Stop-NotesProcesses
+    Write-Host "NICE = $nice"
+    $stage = Test-IsNetworkPath -Path $nice
+    $runPath = ConvertTo-Win32Path -Path (Get-RunnablePath -FilePath $nice -StageLocally:$stage)
+    $workDir = ConvertTo-Win32Path -Path (Split-Path -Parent $runPath)
+    $p = Start-Process -FilePath $runPath -ArgumentList @('-rp', '/qn') `
+        -WorkingDirectory $workDir -Wait -PassThru -NoNewWindow
+    if ($null -eq $p) {
+        Write-Warning 'NICE returnerade ingen processinformation.'
+        return 0
+    }
+    Write-Host "NICE exit $($p.ExitCode)"
+    if ($p.ExitCode -eq 3010 -or $p.ExitCode -eq 1641) {
+        Write-Warning "NICE rapporterade att omstart kravs ($($p.ExitCode))."
+        return $p.ExitCode
+    }
+    if ($p.ExitCode -ne 0) {
+        Write-Warning "NICE exit $($p.ExitCode) - fortsatter med msiexec / residualer."
+    }
+    return $p.ExitCode
+}
+
+function Get-PsPropertyValue {
+    param(
+        [Parameter(Mandatory)]$Object,
+        [Parameter(Mandatory)][string]$Name
+    )
+    if ($null -eq $Object) { return $null }
+    $prop = $Object.PSObject.Properties[$Name]
+    if (-not $prop) { return $null }
+    return $prop.Value
+}
+
+function Invoke-MsiexecUninstallNotes {
+    Write-Step 'msiexec: tar bort kvarvarande HCL/IBM/Lotus Notes-produkter'
+    $reboot = $false
+    $found = 0
+    $roots = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $keys = @(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue)
+        foreach ($key in $keys) {
+            $item = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction SilentlyContinue
+            if (-not $item) { continue }
+            $name = [string](Get-PsPropertyValue -Object $item -Name 'DisplayName')
+            if ($name -notmatch '(?i)(HCL|IBM|Lotus)\s+Notes') { continue }
+            if ($name -match '(?i)(Nomad|Domino|Verse|Traveler)') { continue }
+            $guid = $key.PSChildName
+            if ($guid -notmatch '^\{[0-9A-Fa-f-]+\}$') { continue }
+            $found++
+            Write-Host "msiexec /x $guid ($name)"
+            $p = Start-Process -FilePath 'msiexec.exe' `
+                -ArgumentList @('/x', $guid, '/qn', 'REBOOT=ReallySuppress') `
+                -Wait -PassThru -NoNewWindow
+            if ($null -eq $p) { continue }
+            Write-Host "  exit $($p.ExitCode)"
+            if ($p.ExitCode -eq 3010 -or $p.ExitCode -eq 1641) {
+                $reboot = $true
+            }
+            elseif ($p.ExitCode -ne 0 -and $p.ExitCode -ne 1605) {
+                Write-Warning "msiexec /x $guid exit $($p.ExitCode)"
+            }
+        }
+    }
+    if ($found -eq 0) {
+        Write-Host 'Ingen HCL Notes-produkt i Uninstall-registret (OK).'
+    }
+    if ($reboot) { return 3010 }
+    return 0
+}
+
+function Remove-NotesClientShortcuts {
+    Write-Step 'Tar bort Notes-genvagar (Start-meny + skrivbord)'
+    $programRoots = New-Object System.Collections.Generic.List[string]
+    $desktopRoots = New-Object System.Collections.Generic.List[string]
+    $programRoots.Add((Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'))
+    $desktopRoots.Add('C:\Users\Public\Desktop')
+    if ($env:PUBLIC) {
+        $pubDesk = Join-Path $env:PUBLIC 'Desktop'
+        if ($pubDesk -ne 'C:\Users\Public\Desktop') {
+            $desktopRoots.Add($pubDesk)
+        }
+    }
+
+    $usersRoot = Join-Path $env:SystemDrive 'Users'
+    if (Test-Path -LiteralPath $usersRoot) {
+        Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notin @('All Users', 'Default User') } |
+            ForEach-Object {
+                $programRoots.Add((Join-Path $_.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs'))
+                $desktopRoots.Add((Join-Path $_.FullName 'Desktop'))
+            }
+    }
+
+    $removed = 0
+    foreach ($root in $programRoots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        foreach ($appName in @('HCL Applications', 'Lotus Applications')) {
+            $appDir = Join-Path $root $appName
+            if (-not (Test-Path -LiteralPath $appDir)) { continue }
+            $supportDir = Join-Path $appDir 'Support'
+            if (Test-Path -LiteralPath $supportDir) {
+                if (Remove-NotesUnwantedItem -Path $supportDir -Recurse) { $removed++ }
+            }
+            Get-ChildItem -LiteralPath $appDir -Filter '*.lnk' -File -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                    if (Test-UnwantedNotesShortcut -Lnk $_ -IncludeNotesClient) {
+                        if (Remove-NotesUnwantedItem -Path $_.FullName) { $removed++ }
+                    }
+                }
+            $left = @(Get-ChildItem -LiteralPath $appDir -Force -ErrorAction SilentlyContinue)
+            if ($left.Count -eq 0) {
+                if (Remove-NotesUnwantedItem -Path $appDir -Recurse) { $removed++ }
+            }
+        }
+    }
+
+    foreach ($desk in $desktopRoots) {
+        if (-not (Test-Path -LiteralPath $desk)) { continue }
+        foreach ($name in @('HCL Notes.lnk', 'Notes.lnk', 'Lotus Notes.lnk')) {
+            $exact = Join-Path $desk $name
+            if (Test-Path -LiteralPath $exact) {
+                if (Remove-NotesUnwantedItem -Path $exact) { $removed++ }
+            }
+        }
+        Get-ChildItem -LiteralPath $desk -Filter '*.lnk' -File -Force -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                if (Test-UnwantedNotesShortcut -Lnk $_ -IncludeNotesClient) {
+                    if (Remove-NotesUnwantedItem -Path $_.FullName) { $removed++ }
+                }
+            }
+    }
+
+    Write-Host "Tog bort $removed genvag(ar)/mapp(ar)."
+}
+
+function Remove-NotesUserData {
+    Write-Step 'Tar bort per-anvandardata (-RemoveUserData)'
+    Write-Warning 'Detta raderar Notes-data per anvandare (ID-fil, NSF-repliker, notes.ini).'
+    $skip = @('All Users', 'Default User', 'Default', 'Public')
+    $rels = @(
+        'AppData\Local\HCL\Notes',
+        'AppData\Roaming\HCL\Notes',
+        'AppData\Local\IBM\Notes',
+        'AppData\Roaming\IBM\Notes',
+        'AppData\Local\Lotus\Notes',
+        'AppData\Roaming\Lotus\Notes'
+    )
+    $usersRoot = Join-Path $env:SystemDrive 'Users'
+    if (-not (Test-Path -LiteralPath $usersRoot)) { return }
+    Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notin $skip } |
+        ForEach-Object {
+            foreach ($rel in $rels) {
+                Remove-PathIfExists -Path (Join-Path $_.FullName $rel)
+            }
+        }
+}
+
+function Invoke-NotesUninstall {
+    $scriptLogDir = $null
+    if ($MediaRoot) {
+        $scriptLogDir = Join-Path $MediaRoot 'SupportFiles\logs'
+        try { New-Item -ItemType Directory -Path $scriptLogDir -Force | Out-Null } catch { $scriptLogDir = $null }
+    }
+    if (-not $scriptLogDir) {
+        $scriptLogDir = Join-Path $env:TEMP 'HCL_Notes_Install'
+        New-Item -ItemType Directory -Path $scriptLogDir -Force | Out-Null
+    }
+    $scriptLog = Join-Path $scriptLogDir 'uninstall_notes_script.log'
+    Write-Host "Script-logg: $scriptLog"
+    Write-InstallLogNote -Path $scriptLog -Message "=== install_notes.ps1 -Uninstall MediaRoot=$MediaRoot ==="
+    try {
+        Start-Transcript -Path (Join-Path $scriptLogDir 'uninstall_notes_transcript.log') -Append -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
+
+    $niceCode = Invoke-NiceRemove
+    $msiCode = Invoke-MsiexecUninstallNotes
+    Stop-NotesProcesses
+
+    if (-not $SkipResidualCleanup) {
+        Clear-NotesResiduals
+    }
+    else {
+        Write-Host 'Hoppar over residual-rensning (-SkipResidualCleanup)'
+    }
+
+    Remove-NotesClientShortcuts
+
+    if ($RemoveUserData) {
+        Remove-NotesUserData
+    }
+    else {
+        Write-Host 'Lamnade per-anvandardata (ID/NSF). Anvand -RemoveUserData for lab-wipe.'
+    }
+
+    $notesExe = Join-Path ${env:ProgramFiles} 'HCL\Notes\notes.exe'
+    if (Test-Path -LiteralPath $notesExe) {
+        Write-Warning "notes.exe finns kvar: $notesExe"
+    }
+    else {
+        Write-Host 'notes.exe borta (Program Files).'
+    }
+
+    Write-InstallLogNote -Path $scriptLog -Message '=== install_notes.ps1 -Uninstall klar ==='
+    try { Stop-Transcript | Out-Null } catch {}
+
+    if ($niceCode -in 3010, 1641 -or $msiCode -in 3010, 1641) {
+        return 3010
+    }
+    return 0
+}
+
 function Resolve-KitMediaRoot {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$Optional
+    )
 
     $raw = $Path.Trim()
     $expanded = [Environment]::ExpandEnvironmentVariables($raw)
@@ -1124,6 +1410,9 @@ CMD:
     }
 
     if (-not (Test-Path -LiteralPath $expanded)) {
+        if ($Optional) {
+            return $null
+        }
         throw @"
 Hittar inte MediaRoot: $expanded
 (angivet: $raw)
@@ -1141,6 +1430,39 @@ Kontrollera: Test-Path `$env:TEMP\Notes1451
 }
 
 # --- Start ---
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).
+    IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+Write-Host "Administrator = $isAdmin"
+if (-not $isAdmin) {
+    throw 'Skriptet maste koras som Administrator (hogerklicka PowerShell -> Kor som administratör).'
+}
+
+if ($Uninstall) {
+    Write-Step 'HCL Notes 14.5.1 avinstallation'
+    Write-Host "Konto-TEMP = $env:TEMP"
+    $MediaRoot = Resolve-KitMediaRoot -Path $MediaRoot -Optional
+    if (-not $MediaRoot -and -not [string]::IsNullOrWhiteSpace($LocalMediaRoot)) {
+        $localHit = Resolve-KitMediaRoot -Path $LocalMediaRoot -Optional
+        if ($localHit) { $MediaRoot = $localHit }
+    }
+    if ($MediaRoot) {
+        Write-Host "MediaRoot (kit-rot) = $MediaRoot"
+    }
+    else {
+        Write-Host 'MediaRoot saknas - sokar NICE pa kanda sokvagar, annars msiexec.'
+    }
+    Write-Step 'Kontrollerar att Notes inte kor'
+    Assert-NotesNotRunning
+    New-Item -ItemType Directory -Path (Join-Path $env:TEMP 'HCL_Notes_Install') -Force | Out-Null
+    New-Item -ItemType Directory -Path $script:LocalStageDir -Force | Out-Null
+    $unCode = Invoke-NotesUninstall
+    Write-Step 'Avinstallation klar'
+    if ($unCode -eq 3010 -or $unCode -eq 1641) {
+        Write-Warning "Omstart kravs ($unCode)."
+    }
+    exit $unCode
+}
+
 Write-Step "HCL Notes 14.5.1 installationsflode"
 Write-Host "Konto-TEMP = $env:TEMP"
 $MediaRoot = Resolve-KitMediaRoot -Path $MediaRoot
@@ -1153,13 +1475,6 @@ $notesKitPath = Join-Path $MediaRoot $NotesKitRel
 Write-Host "NotesEdition = $NotesEdition"
 Write-Host "NotesKit = $notesKitPath"
 Write-Host "NotesMsi = $NotesMsi"
-
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).
-    IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-Write-Host "Administrator = $isAdmin"
-if (-not $isAdmin) {
-    throw 'Skriptet maste koras som Administrator (hogerklicka PowerShell -> Kor som administratör).'
-}
 
 Write-Step 'Kontrollerar att Notes inte kor'
 Assert-NotesNotRunning

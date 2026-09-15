@@ -1,0 +1,8 @@
+{
+  "MediaRoot": "\\\\dc02\\Install\\Notes-1451",
+  "LocalMediaRoot": "C:\\install\\Notes-1451",
+  "DominoName": "Zeus/TUVAN",
+  "DominoAddress": "zeus.tuvan.local",
+  "SkipLocalMirror": false,
+  "RemoveUserData": false
+}
