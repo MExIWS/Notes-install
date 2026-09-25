@@ -100,6 +100,8 @@ param(
     [switch]$SkipShortcutCleanup,
     # Default: avbryt om Notes kor (exit 10). Tvinga dodande av processer: -ForceCloseNotes
     [switch]$ForceCloseNotes,
+    # Tyst: REMOVEFEATURES=SametimeUI (integrerad Sametime). Inte ADDLOCAL/REMOVE.
+    [switch]$SkipSametime,
     # Ta bort Notes i stallet for att installera (NICE + msiexec + residualer)
     [switch]$Uninstall,
     # Med -Uninstall: rensa aven per-anvandardata (ID-fil, NSF-repliker). Default av.
@@ -412,10 +414,10 @@ function Invoke-NotesBaseInstall {
 
     # msiexec: en argumentstrang - /l*v fungerar har nar det inte gar via InstallShield /v
     $msiArgs = if ($MstPath) {
-        "/i `"$MsiPath`" TRANSFORMS=`"$MstPath`" /qn REBOOT=ReallySuppress /l*v `"$LogPath`""
+        "/i `"$MsiPath`" TRANSFORMS=`"$MstPath`" $MsiProps /qn /l*v `"$LogPath`""
     }
     else {
-        "/i `"$MsiPath`" /qn ALLUSERS=1 SETMULTIUSER=1 USENOTESFOREMAIL=0 USENOTESFORCALENDAR=0 USENOTESFORCONTACTS=0 REBOOT=ReallySuppress /l*v `"$LogPath`""
+        "/i `"$MsiPath`" $MsiProps /qn /l*v `"$LogPath`""
     }
 
     Write-InstallLogNote -Path $ScriptLogPath -Message "msiexec args: $msiArgs"
@@ -1592,14 +1594,20 @@ Get-ChildItem -LiteralPath $notesKitPath -Filter '*.msi' | ForEach-Object {
     Write-InstallLogNote -Path $scriptLog -Message "kit MSI: $($_.FullName)"
 }
 
-$msiProps = @(
+$msiPropList = @(
     'ALLUSERS=1',
     'SETMULTIUSER=1',
     'USENOTESFOREMAIL=0',
     'USENOTESFORCALENDAR=0',
     'USENOTESFORCONTACTS=0',
     'REBOOT=ReallySuppress'
-) -join ' '
+)
+if ($SkipSametime) {
+    # HCL: Sametime (integrerad) = SametimeUI. Gäller tyst setup.exe / msiexec.
+    $msiPropList += 'REMOVEFEATURES=SametimeUI'
+    Write-Host 'SkipSametime: REMOVEFEATURES=SametimeUI'
+}
+$msiProps = $msiPropList -join ' '
 
 $mstPath = ''
 if ($useMst) {
