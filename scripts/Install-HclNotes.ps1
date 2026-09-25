@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
   Installerar eller avinstallerar HCL Notes 14.5.1 (multi-user), FP1,
@@ -796,7 +796,7 @@ function Clear-NotesResiduals {
     }
 }
 
-function Verify-HostsEntry {
+function Ensure-HostsEntry {
     param(
         [string]$Ip,
         [string]$HostName
@@ -1548,7 +1548,7 @@ if ($AddToHostsAsSetupServer) {
     if ([string]::IsNullOrWhiteSpace($HostsIp) -or [string]::IsNullOrWhiteSpace($HostsName)) {
         throw '-AddToHostsAsSetupServer kraver -HostsIp och -HostsName'
     }
-    Verify-HostsEntry -Ip $HostsIp -HostName $HostsName
+    Ensure-HostsEntry -Ip $HostsIp -HostName $HostsName
 }
 else {
     Write-Host 'Hoppar over hosts-fil (anvand -AddToHostsAsSetupServer -HostsIp ... -HostsName ... vid behov).'

@@ -1,0 +1,7 @@
+Username=%UserName%
+Domino.Name=<Change to Your Server(ex. Domino/Organisation)>
+Domino.Address=<Change to Your Server(ex. Domino.domain.se)>
+Domino.Port=TCPIP
+Domino.Server=1
+AdditionalServices=-1
+AdditionalServices.NetworkDial=0
