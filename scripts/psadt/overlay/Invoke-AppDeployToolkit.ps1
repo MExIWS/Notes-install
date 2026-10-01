@@ -163,6 +163,7 @@ function Get-NotesPs1ArgumentList {
     else {
         $dominoName = Get-NotesJsonString $Cfg 'DominoName'
         $dominoAddress = Get-NotesJsonString $Cfg 'DominoAddress'
+        $argList += '-SkipSametime'
         if ($dominoName) { $argList += @('-DominoName', $dominoName) }
         if ($dominoAddress) { $argList += @('-DominoAddress', $dominoAddress) }
     }
