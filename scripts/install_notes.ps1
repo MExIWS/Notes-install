@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+# Requires -RunAsAdministrator
 <#
 .SYNOPSIS
   Installerar eller avinstallerar HCL Notes 14.5.1 (multi-user), FP1,
@@ -15,8 +15,8 @@
 
 [CmdletBinding()]
 param(
-    # Kit-rot: Notes-1451\ (innehalle Notes_1451_Win64_Swedish + SupportFiles)
-    # Default nar scriptet ligger i SupportFiles\scripts\: farforaldern till SupportFiles
+    # Kit-rot: Notes-1451\ (innehåller Notes_1451_Win64_Swedish + SupportFiles)
+    # Default när scriptet ligger i SupportFiles\scripts\: farföräldern till SupportFiles
     [string]$MediaRoot = $(
         $here = $PSScriptRoot
         if ((Split-Path -Leaf $here) -ieq 'scripts') {
@@ -45,10 +45,10 @@ param(
     [string]$NotesMsi = '',
     [string]$NotesSetupExe = 'setup.exe',
 
-    # Custom MST (tom = ingen). HCL:s 1053.mst i kitet ar spraktransform, inte er paketering.
+    # Custom MST (tom = ingen). HCL:s 1053.mst i kitet ar språktransform.
     [string]$NotesMst = '',
 
-    # SupportFiles-relativa sokvagar (fran MediaRoot / kit-rot)
+    # SupportFiles-relativa sökvägar (fran MediaRoot / kit-rot)
     [string]$NiceExe = 'SupportFiles\x64\NICE_x64.exe',
     [string]$FixPackDir = 'SupportFiles\Notes_1451FP1_x64',
     # Uppackat MUI (rekommenderat): ...\Notes_1451_x64_MUI\MUI.msi.w64.nl2a\setup.exe
@@ -93,16 +93,16 @@ param(
     [switch]$SkipMst,
     # Engelskt bas-kit + MUI. Svenskt kit: behoovs normalt inte.
     [switch]$InstallLanguagePack,
-    # Tvinga notes.ini-patch aven om custom MST anvands
+    # Tvinga notes.ini-patch aven om custom MST används
     [switch]$PatchNotesIni,
     [switch]$RunCompact,
     # Behall Notes Minder / NSD / skrivbordsikon HCL Notes
     [switch]$SkipShortcutCleanup,
-    # Default: avbryt om Notes kor (exit 10). Tvinga dodande av processer: -ForceCloseNotes
+    # Default: avbryt om Notes kör (exit 10). Tvinga dodande av processer: -ForceCloseNotes
     [switch]$ForceCloseNotes,
     # Tyst: REMOVEFEATURES=SametimeUI (integrerad Sametime). Inte ADDLOCAL/REMOVE.
     [switch]$SkipSametime,
-    # Ta bort Notes i stallet for att installera (NICE + msiexec + residualer)
+    # Ta bort Notes i stalletföratt installera (NICE + msiexec + residualer)
     [switch]$Uninstall,
     # Med -Uninstall: rensa aven per-anvandardata (ID-fil, NSF-repliker). Default av.
     [switch]$RemoveUserData
@@ -119,7 +119,7 @@ try {
     chcp 65001 | Out-Null
 } catch {}
 
-# Lokal staging for exe fran natverk (Y:\, UNC) - undviker Access denied / MOTW
+# Lokal staging för exe fran natverk (Y:\, UNC) - undviker Access denied / MOTW
 $script:LocalStageDir = Join-Path $env:TEMP 'HCL_Notes_MediaStage'
 
 function Write-Step {
@@ -178,7 +178,7 @@ function Sync-MediaRootToLocal {
         [Parameter(Mandatory)][string]$Destination
     )
 
-    Write-Step "Speglar media fran natverk till lokal disk"
+    Write-Step "Speglar media fran nätverk till lokal disk"
     Write-Host "Fran: $Source"
     Write-Host "Till: $Destination"
 
@@ -199,7 +199,7 @@ function Sync-MediaRootToLocal {
         throw "robocopy misslyckades med exit code $($rc.ExitCode)"
     }
 
-    Write-Host "Tar bort Mark of the Web (Unblock) pa lokala filer..."
+    Write-Host "Tar bort Mark of the Web (Unblock) på lokala filer..."
     Get-ChildItem -LiteralPath $Destination -Recurse -File -ErrorAction SilentlyContinue |
         ForEach-Object {
             try { Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue } catch {}
@@ -223,7 +223,7 @@ function Get-RunnablePath {
 
     New-Item -ItemType Directory -Path $script:LocalStageDir -Force | Out-Null
     $dest = Join-Path $script:LocalStageDir (Split-Path -Leaf $FilePath)
-    Write-Host "Kopierar till lokal temp (natverkskorning): $dest"
+    Write-Host "Kopierar till lokal temp (nätverkskörning): $dest"
     Copy-Item -LiteralPath $FilePath -Destination $dest -Force
     try { Unblock-File -LiteralPath $dest -ErrorAction SilentlyContinue } catch {}
     return $dest
@@ -240,7 +240,7 @@ function Invoke-External {
     $runPath = ConvertTo-Win32Path -Path (Get-RunnablePath -FilePath $FilePath -StageLocally:$StageLocally)
     $workDir = ConvertTo-Win32Path -Path (Split-Path -Parent $runPath)
 
-    Write-Host "Kor: $DisplayName"
+    Write-Host "kör: $DisplayName"
     Write-Host "     $runPath $($ArgumentList -join ' ')"
 
     try {
@@ -253,9 +253,9 @@ Kunde inte starta $DisplayName ($runPath).
 $($_.Exception.Message)
 
 Vanliga orsaker fran Y:\ / natverk:
-- PowerShell inte elevated (Kor som administratör)
+- PowerShell inte elevated (Kör som administratör)
 - EXE blockerad: Unblock-File .\fil.exe
-- Kopiera media till t.ex. C:\install och kor -MediaRoot 'C:\install'
+- Kopiera media till t.ex. C:\install och kör -MediaRoot 'C:\install'
 "@
     }
 
@@ -263,11 +263,11 @@ Vanliga orsaker fran Y:\ / natverk:
         throw "$DisplayName returnerade ingen processinformation."
     }
     if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
-        # 3010 = lyckad, omstart kravs
+        # 3010 = lyckad, omstart krävs
         throw "$DisplayName misslyckades med exit code $($p.ExitCode)"
     }
     if ($p.ExitCode -eq 3010) {
-        Write-Warning "$DisplayName rapporterade att omstart kravs (3010)."
+        Write-Warning "$DisplayName rapporterade att omstart krävs (3010)."
     }
     return $p.ExitCode
 }
@@ -330,7 +330,7 @@ function Invoke-ProcessArguments {
     $FilePath = ConvertTo-Win32Path -Path $FilePath
     $WorkingDirectory = ConvertTo-Win32Path -Path $WorkingDirectory
 
-    Write-Host "Kor: $DisplayName"
+    Write-Host "kör: $DisplayName"
     Write-Host "     $FilePath $Arguments"
     Write-Host "     cwd: $WorkingDirectory"
 
@@ -454,7 +454,7 @@ function Invoke-NotesFixPackSilent {
 
     $notesRunning = @(Get-Process -Name 'notes','nlnotes','notes2' -ErrorAction SilentlyContinue)
     if ($notesRunning.Count -gt 0) {
-        Write-Warning 'Notes kor fortfarande. Stang klienten innan FP1 - annars kan en dialog visas trots /qn.'
+        Write-Warning 'Notes kör fortfarande. Stäng klienten innan FP1 - annars kan en dialog visas trots /qn.'
     }
 
     New-Item -ItemType Directory -Path (Split-Path -Parent $LogPath) -Force | Out-Null
@@ -463,10 +463,10 @@ function Invoke-NotesFixPackSilent {
     if (-not $setup) {
         throw @"
 Hittar inte uppackat FP1-kit (setup.exe).
-Forvantar t.ex.:
+Förvantar t.ex.:
   $(Join-Path $MediaRoot (Join-Path $FixPackDir 'setup.exe'))
 
-Packa upp Notes_1451FP1_x64.exe manuellt en gang och distribuera mappen
+Packa upp Notes_1451FP1_x64.exe manuellt en gång och distribuera mappen
 Notes_1451FP1_x64\ (med setup.exe) i mediakitet.
 "@
     }
@@ -474,10 +474,10 @@ Notes_1451FP1_x64\ (med setup.exe) i mediakitet.
     $setupDir = Split-Path -Parent $setup
     Write-Host "Uppackat FP1: $setupDir"
 
-    # HCL: setup.exe /s /v"/qn ..."  - kor exe direkt (undvik cmd-citatfel)
+    # HCL: setup.exe /s /v"/qn ..."  - kör exe direkt (undvik cmd-citatfel)
     # Loggsokvag utan egna citat inuti /v (annars blir det /l*v "path"")
     $vArgs = "/qn REBOOT=ReallySuppress /l*v $LogPath"
-    Write-Host "Kor: Notes FP1 (setup.exe /s /v`"$vArgs`")"
+    Write-Host "kör: Notes FP1 (setup.exe /s /v`"$vArgs`")"
     Write-Host "     $setup"
 
     $p = Start-Process -FilePath $setup `
@@ -509,7 +509,7 @@ Testa manuellt i elevated CMD:
     }
 
     if ($p.ExitCode -eq 3010) {
-        Write-Warning 'Notes FP1 rapporterade att omstart kravs (3010).'
+        Write-Warning 'Notes FP1 rapporterade att omstart krävs (3010).'
     }
     return $p.ExitCode
 }
@@ -532,26 +532,26 @@ function Stop-NotesProcesses {
 function Assert-NotesNotRunning {
     $procs = @(Get-NotesClientProcesses)
     if ($procs.Count -eq 0) {
-        Write-Host 'Notes-processer: inga. Fortsatter.'
+        Write-Host 'Notes-processer: inga. Fortsätter.'
         return
     }
 
-    Write-Host 'Notes kor pa den har datorn:'
+    Write-Host 'Notes kör pa den har datorn:'
     foreach ($p in $procs) {
         if (-not ($p -is [System.Diagnostics.Process])) { continue }
         Write-Host "  $($p.Name) PID $($p.Id)"
     }
 
     if ($ForceCloseNotes) {
-        Write-Warning 'ForceCloseNotes: stoppar Notes och fortsatter.'
+        Write-Warning 'ForceCloseNotes: stoppar Notes och fortsätter.'
         Stop-NotesProcesses
         Start-Sleep -Seconds 2
         return
     }
 
     Write-Host ''
-    Write-Host 'Korningen avbryts (exit 10). Stang Notes och kor om, eller anvand -ForceCloseNotes.'
-    Write-Host 'PDQ: sat inte 10 som success code; valfritt retry. Paketvillkor: notes.exe kor inte.'
+    Write-Host 'körningen avbryts (exit 10). Stang Notes och kör om, eller anvand -ForceCloseNotes.'
+    Write-Host 'PDQ: sat inte 10 som success code; valfritt retry. Paketvillkor: notes.exe kör inte.'
     exit 10
 }
 
@@ -671,7 +671,7 @@ function Remove-NotesUnwantedShortcuts {
 
 function Remove-RcpInstallerTempProperties {
     <#
-      Notes 14.5.1: kvarlamnad rcpInstallerTemp.properties i TEMP for kontot som kor
+      Notes 14.5.1: kvarlamnad rcpInstallerTemp.properties i TEMPförkontot som kör
       installen kan fa MSI att lyckas men ta bort optional RCP-komponenter (t.ex. Sametime),
       eller sabontera uppgradering. Rensa innan setup.exe/msiexec.
       Se HCL KB0132505 / panagenda.
@@ -691,7 +691,7 @@ function Remove-RcpInstallerTempProperties {
         }
     }
 
-    # Andra anvandarprofiler (viktigt om tidigare install korde som annan admin/SYSTEM)
+    # Andra anvandarprofiler (viktigt om tidigare install körde som annan admin/SYSTEM)
     $usersRoot = Join-Path $env:SystemDrive 'Users'
     if (Test-Path -LiteralPath $usersRoot) {
         Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue |
@@ -754,7 +754,7 @@ function Remove-PathIfExists {
         Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
     }
     catch {
-        # Lasta filer / ACL - forsok ta agandeskap och radera igen
+        # Lasta filer / ACL - försök ta agandeskap och radera igen
         Write-Warning "Forsta forsoket misslyckades: $($_.Exception.Message)"
         try {
             $null = cmd.exe /c "takeown /f `"$Path`" /r /d y >nul 2>&1"
@@ -796,7 +796,7 @@ function Clear-NotesResiduals {
     }
 }
 
-function Verify-HostsEntry {
+function VerifyHostsEntry {
     param(
         [string]$Ip,
         [string]$HostName
@@ -881,7 +881,7 @@ function Update-SetupNotesDominoSettings {
 }
 
 function Get-NotesIniPath {
-    # Multi-user: NotesIniPath ligger typiskt under HKCU efter forsta anvandarsetup,
+    # Multi-user: NotesIniPath ligger typiskt under HKCU efter första anvandarsetup,
     # men shared notes.ini skapas under ProgramData vid installation.
     # StrictMode: testa property via PSObject - saknad NotesIniPath far inte kasta.
     $candidates = @(
@@ -1028,7 +1028,7 @@ function Save-VcRedistFromWeb {
         throw "Kunde inte ladda ner $FileName ($Url). $($_.Exception.Message)"
     }
     if (-not (Test-Path -LiteralPath $dest) -or ((Get-Item -LiteralPath $dest).Length -lt 1MB)) {
-        throw "Nedladdning av $FileName blev for liten / saknas: $dest"
+        throw "Nedladdning av $FileName blevförliten / saknas: $dest"
     }
     return $dest
 }
@@ -1039,7 +1039,7 @@ function Install-OneVcRedist {
         [Parameter(Mandatory)][string]$DisplayName
     )
     $SetupExe = ConvertTo-Win32Path -Path $SetupExe
-    Write-Host "Kor: $DisplayName"
+    Write-Host "kör: $DisplayName"
     Write-Host "     $SetupExe /install /quiet /norestart"
     $p = Start-Process -FilePath $SetupExe -ArgumentList @('/install', '/quiet', '/norestart') `
         -Wait -PassThru -NoNewWindow
@@ -1105,7 +1105,7 @@ Ladda ner:
   https://aka.ms/vs/17/release/vc_redist.x64.exe
   https://aka.ms/vs/17/release/vc_redist.x86.exe
 
-Kor elevated: vc_redist.x64.exe /install /quiet /norestart
+kör elevated: vc_redist.x64.exe /install /quiet /norestart
 "@
     }
     Write-Host 'VC++ Redistributable installerad / redan pa plats.'
@@ -1180,11 +1180,11 @@ function Invoke-NiceRemove {
     }
     Write-Host "NICE exit $($p.ExitCode)"
     if ($p.ExitCode -eq 3010 -or $p.ExitCode -eq 1641) {
-        Write-Warning "NICE rapporterade att omstart kravs ($($p.ExitCode))."
+        Write-Warning "NICE rapporterade att omstart krävs ($($p.ExitCode))."
         return $p.ExitCode
     }
     if ($p.ExitCode -ne 0) {
-        Write-Warning "NICE exit $($p.ExitCode) - fortsatter med msiexec / residualer."
+        Write-Warning "NICE exit $($p.ExitCode) - fortsätter med msiexec / residualer."
     }
     return $p.ExitCode
 }
@@ -1363,7 +1363,7 @@ function Invoke-NotesUninstall {
         Remove-NotesUserData
     }
     else {
-        Write-Host 'Lamnade per-anvandardata (ID/NSF). Anvand -RemoveUserData for lab-wipe.'
+        Write-Host 'Lamnade per-anvandardata (ID/NSF). Anvand -RemoveUserDataförlab-wipe.'
     }
 
     $notesExe = Join-Path ${env:ProgramFiles} 'HCL\Notes\notes.exe'
@@ -1420,7 +1420,7 @@ Hittar inte MediaRoot: $expanded
 (angivet: $raw)
 
 Konto-TEMP just nu: $env:TEMP
-Forvantad kit-rot efter robocopy till %TEMP%: $userTempKit
+Förvantad kit-rot efter robocopy till %TEMP%: $userTempKit
 PDQ som SYSTEM landar oftast har: $systemTempKit
 
 I PowerShell expanderas inte %TEMP% - anvand `$env:TEMP.
@@ -1436,7 +1436,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
     IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 Write-Host "Administrator = $isAdmin"
 if (-not $isAdmin) {
-    throw 'Skriptet maste koras som Administrator (hogerklicka PowerShell -> Kor som administratör).'
+    throw 'Skriptet maste köras som Administrator (hogerklicka PowerShell -> kör som administratör).'
 }
 
 if ($Uninstall) {
@@ -1451,16 +1451,16 @@ if ($Uninstall) {
         Write-Host "MediaRoot (kit-rot) = $MediaRoot"
     }
     else {
-        Write-Host 'MediaRoot saknas - sokar NICE pa kanda sokvagar, annars msiexec.'
+        Write-Host 'MediaRoot saknas - sokar NICE pa kanda sökvägar, annars msiexec.'
     }
-    Write-Step 'Kontrollerar att Notes inte kor'
+    Write-Step 'Kontrollerar att Notes inte kör'
     Assert-NotesNotRunning
     New-Item -ItemType Directory -Path (Join-Path $env:TEMP 'HCL_Notes_Install') -Force | Out-Null
     New-Item -ItemType Directory -Path $script:LocalStageDir -Force | Out-Null
     $unCode = Invoke-NotesUninstall
     Write-Step 'Avinstallation klar'
     if ($unCode -eq 3010 -or $unCode -eq 1641) {
-        Write-Warning "Omstart kravs ($unCode)."
+        Write-Warning "Omstart krävs ($unCode)."
     }
     exit $unCode
 }
@@ -1478,7 +1478,7 @@ Write-Host "NotesEdition = $NotesEdition"
 Write-Host "NotesKit = $notesKitPath"
 Write-Host "NotesMsi = $NotesMsi"
 
-Write-Step 'Kontrollerar att Notes inte kor'
+Write-Step 'Kontrollerar att Notes inte kör'
 Assert-NotesNotRunning
 
 # setup.exe fran Z:\ / UNC ger Access denied - spegla hela kit-roten lokalt
@@ -1548,7 +1548,7 @@ if ($AddToHostsAsSetupServer) {
     if ([string]::IsNullOrWhiteSpace($HostsIp) -or [string]::IsNullOrWhiteSpace($HostsName)) {
         throw '-AddToHostsAsSetupServer kraver -HostsIp och -HostsName'
     }
-    Verify-HostsEntry -Ip $HostsIp -HostName $HostsName
+    VerifyHostsEntry -Ip $HostsIp -HostName $HostsName
 }
 else {
     Write-Host 'Hoppar over hosts-fil (anvand -AddToHostsAsSetupServer -HostsIp ... -HostsName ... vid behov).'
@@ -1572,7 +1572,7 @@ $msiRel = Join-Path $NotesKitRel $NotesMsi
 $setupRel = Join-Path $NotesKitRel $NotesSetupExe
 $msi = Get-MediaPath $msiRel
 $setup = Get-MediaPath $setupRel
-Write-Host "MSI for setup.exe = $NotesMsi"
+Write-Host "MSIförsetup.exe = $NotesMsi"
 
 # Loggar under SupportFiles\logs (skapas alltid)
 $scriptLogDir = Join-Path $MediaRoot 'SupportFiles\logs'
@@ -1693,7 +1693,7 @@ if (-not $SkipFixPack) {
 }
 
 # 6) MUI - uppackat Group2a (Swedish/Dutch). Cascaded .exe ar opalitlig; distribuera uppackat.
-# Kor via cmd.exe. /L<lcid> undertrycker sprakval-dialog.
+# kör via cmd.exe. /L<lcid> undertrycker sprakval-dialog.
 if ($InstallLanguagePack) {
     if ($NotesEdition -eq 'Swedish') {
         Write-Warning 'NotesEdition=Swedish inkluderar redan svenska. MUI behoovs normalt bara med -NotesEdition English.'
@@ -1785,7 +1785,7 @@ else {
 
 # 8) Valfri compact - opt-in (-RunCompact), ofta forst efter anvandarsetup
 if ($RunCompact) {
-    Write-Step 'Forsoker kora ncompact utifran notes.ini [-RunCompact]'
+    Write-Step 'Försoker köra ncompact utifran notes.ini [-RunCompact]'
     $ini = Get-NotesIniPath
     if (-not $ini) {
         Write-Warning 'Hittade ingen notes.ini an - hoppar over compact.'
@@ -1835,7 +1835,7 @@ else {
     Write-Host "Loggar: $logDir"
 }
 if ($useMst) {
-    Write-Host 'MST anvand: kontrollera ALLUSERS=1 / SETMULTIUSER=1 i transformen.'
+    Write-Host 'MST använd: kontrollera ALLUSERS=1 / SETMULTIUSER=1 i transformen.'
 }
 else {
     Write-Host 'Ingen MST: ALLUSERS=1 SETMULTIUSER=1 sattes via kommandorad; notes.ini patchades i PS.'
