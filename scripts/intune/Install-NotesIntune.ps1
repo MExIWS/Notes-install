@@ -111,6 +111,7 @@ Write-Host "LocalMediaRoot  = $dest"
 $installArgs = @{
     MediaRoot     = $dest
     NotesEdition  = [string]$cfg.NotesEdition
+    SkipSametime  = $true
 }
 
 if (-not [string]::IsNullOrWhiteSpace([string]$cfg.DominoName)) {

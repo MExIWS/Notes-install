@@ -5,6 +5,7 @@ $kit = '\\dc02\Install\Notes-1451'
 & (Join-Path $kit 'SupportFiles\scripts\install_notes.ps1') `
     -MediaRoot $kit `
     -LocalMediaRoot 'C:\install\Notes-1451' `
+    -SkipSametime `
     -DominoName 'Zeus/TUVAN' `
     -DominoAddress 'zeus.tuvan.local'
 if ($null -eq $LASTEXITCODE) { exit 0 }
